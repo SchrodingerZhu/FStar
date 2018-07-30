@@ -1093,6 +1093,14 @@ let check_multi_contained (l1 : list<int>) (l2 : list<int>) =
     in
     aux l1 l2
 
+let admitting (f : unit -> 'a) : 'a =
+    Options.with_saved_options (fun () ->
+        begin match Options.set_options Options.Set "--admit_smt_queries true" with
+        | FStar.Getopt.Success -> ()
+        | _ -> failwith "wat"
+        end;
+        f ())
+
 let tc_decl' env0 se: list<sigelt> * list<sigelt> * Env.env =
   let env = env0 in
   TcUtil.check_sigelt_quals env se;
@@ -1118,10 +1126,12 @@ let tc_decl' env0 se: list<sigelt> * list<sigelt> * Env.env =
     let env = Env.set_range env r in
     let ses =
       if Options.use_two_phase_tc () && Env.should_verify env then begin
+        admitting (fun () ->
         //we generate extra sigelts even in the first phase, and then throw them away, would be nice to not generate them at all
-        let ses = tc_inductive ({ env with phase1 = true; lax = true }) ses se.sigquals lids |> fst |> N.elim_uvars env |> U.ses_of_sigbundle in
+        let ses = tc_inductive ({ env with phase1 = true }) ses se.sigquals lids |> fst |> N.elim_uvars env |> U.ses_of_sigbundle in
         if Env.debug env <| Options.Other "TwoPhases" then BU.print1 "Inductive after phase 1: %s\n" (Print.sigelt_to_string ({ se with sigel = Sig_bundle (ses, lids) }));
         ses
+        )
       end
       else ses
     in
@@ -1148,7 +1158,9 @@ let tc_decl' env0 se: list<sigelt> * list<sigelt> * Env.env =
   | Sig_new_effect(ne) ->
     let ne =
       if Options.use_two_phase_tc () && Env.should_verify env then begin
-        let ne = tc_eff_decl ({ env with phase1 = true; lax = true }) ne |> (fun ne -> { se with sigel = Sig_new_effect ne }) |> N.elim_uvars env |> U.eff_decl_of_new_effect in
+        let ne = admitting (fun () ->
+                    tc_eff_decl ({ env with phase1 = true }) ne |> (fun ne -> { se with sigel = Sig_new_effect ne }) |> N.elim_uvars env |> U.eff_decl_of_new_effect
+                 )in
         if Env.debug env <| Options.Other "TwoPhases" then BU.print1 "Effect decl after phase 1: %s\n" (Print.sigelt_to_string ({ se with sigel = Sig_new_effect ne }));
         ne
       end
@@ -1324,7 +1336,7 @@ let tc_decl' env0 se: list<sigelt> * list<sigelt> * Env.env =
 
     let uvs, t =
       if Options.use_two_phase_tc () && Env.should_verify env then begin
-        let uvs, t = tc_assume ({ env with phase1 = true; lax = true }) (uvs, t) se.sigrng in
+        let uvs, t = admitting (fun () -> tc_assume ({ env with phase1 = true }) (uvs, t) se.sigrng)  in
         if Env.debug env <| Options.Other "TwoPhases" then BU.print2 "Assume after phase 1: %s and uvs: %s\n" (Print.term_to_string t) (Print.univ_names_to_string uvs);
         uvs, t
       end
@@ -1466,7 +1478,7 @@ let tc_decl' env0 se: list<sigelt> * list<sigelt> * Env.env =
             else e_lax
           | _ -> e_lax  //leave recursive lets as is
         in
-        let e = tc_maybe_toplevel_term ({ env0 with phase1 = true; lax = true }) e |> (fun (e, _, _) -> e) |> N.remove_uvar_solutions env0 |> drop_lbtyp in
+        let e = admitting (fun () -> tc_maybe_toplevel_term ({ env0 with phase1 = true }) e |> (fun (e, _, _) -> e) |> N.remove_uvar_solutions env0 |> drop_lbtyp) in
         if Env.debug env <| Options.Other "TwoPhases" then BU.print1 "Let binding after phase 1: %s\n" (Print.term_to_string e);
         e
       end
